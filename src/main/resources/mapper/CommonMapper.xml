@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="top.jimxu.mapper.CommonMapper">
+
+
+    <select id="listAvgPass" resultType="top.jimxu.entity.vo.AvgPassVo">
+        select distinct k.fzcn,
+        k.stationcn,
+        count(1) over (partition by k.fzcn,k.dzcn,k.STATIONCN,k.ingate_time,k.outgate_time) stationnum,
+        k.ingate_time ingatetime,
+        k.outgate_time outgatetime,
+        to_char(k.passtime,'fm990.00') passtime,
+        listagg(k.YDNO, ',') within group (order by 1)  over (partition by k.fzcn,k.stationcn,k.ingate_time,k.outgate_time)  as ids
+        from (
+        select c.ctnno,
+        t.YDNO,
+        t.fzcn,
+        t.dzcn,
+        t.stationcn,
+        max(t.passtime)                                          as outgate_time,
+        min(t.passtime)                                          as ingate_time,
+        (select t1.passtime
+        FROM GT_ONRAIL_DATA t1
+        WHERE t1.flag = 'LCCF'
+        and t1.dzcn in ('北仑港', '镇海西', '穿山港')
+        and t1.fzcn = t.fzcn
+        and t1.dzcn = t.dzcn
+        and decode(t1.stationcn, '向塘西', '向塘', t1.stationcn) = t1.fzcn
+        and t1.ydno = t.ydno
+        and t1.trainno = t.trainno)                           as sendtime,
+        (to_date(max(t.passtime), 'YYYY-MM-DD hh24:mi:ss') -
+        to_date(min(t.passtime), 'YYYY-MM-DD hh24:mi:ss')) * 24 as passtime
+        from gt_onrail_data t
+        inner join gt_onrail_data_ctn c on t.id = c.dataid
+        <where>
+            and (flag = 'LCDD' OR FLAG = 'LCCF')
+            and (
+            exists(select t.CTNNO
+            from TRAIN_CTN_DETAIL_INSIDE t
+            where t.ctnno = c.ctnno
+            and t.PORTAGENT in ('国际物流', '铁司', '物流集团')
+            and t.plantime > to_char(to_date(t.PASSTIME,'YYYY-MM-DD HH24:mi:ss') - 30, 'YYYYMMDD')
+            and t.plantime &lt; to_char(to_date(t.PASSTIME,'YYYY-MM-DD HH24:mi:ss') + 10, 'YYYYMMDD')
+            )
+            or
+            exists(select t.CTNNO
+            from TRAIN_CTN_DETAIL t
+            where t.ctnno = c.ctnno
+            and t.PORTAGENT in ('国际物流', '铁司', '物流集团')
+            and t.plantime > to_char(to_date(t.PASSTIME,'YYYY-MM-DD HH24:mi:ss') - 30, 'YYYYMMDD')
+            and t.plantime &lt; to_char(to_date(t.PASSTIME,'YYYY-MM-DD HH24:mi:ss') + 10, 'YYYYMMDD')
+            )
+            or
+            exists(select * from sr_container c inner join SR_CONSIGNMENTBILL b on
+            c.CONSBILL_ID = b.ID where c.CONTAINER_NO = c.ctnno and b.ACCEPT_STATE = '1'
+            and b.CREATE_TIME > to_date(t.PASSTIME,'YYYY-MM-DD HH24:mi:ss') - 30
+            and b.CREATE_TIME &lt; to_date(t.PASSTIME,'YYYY-MM-DD HH24:mi:ss') + 10
+            and c.PORT_AGENT in ('国际物流','铁司', '物流集团'))
+            )
+            <if test="passTimeArr != null and passTimeArr.size() > 0">
+                and t.passtime > #{passTimeArr[0]}
+                and t.passtime &lt; #{passTimeArr[1]}
+            </if>
+            <if test="dzcnList != null and dzcnList.size() > 0">
+                and t.dzcn in
+                <foreach collection="dzcnList" item="item" open=" ( " close=" ) " separator=" , " >
+                    #{item}
+                </foreach>
+            </if>
+            <if test="stationcnList != null and stationcnList.size() > 0">
+                and t.stationcn in
+                <foreach collection="stationcnList" item="item" open=" ( " close=" ) " separator=" , " >
+                    #{item}
+                </foreach>
+            </if>
+        </where>
+        group by t.ydno, t.stationcn, t.fzcn, t.dzcn, c.ctnno, t.trainno) k
+        <where>
+            <if test="downAvgTime != null">
+                and to_char(k.passtime,'fm990.00') > #{downAvgTime}
+            </if>
+        </where>
+    </select>
+
+</mapper>
