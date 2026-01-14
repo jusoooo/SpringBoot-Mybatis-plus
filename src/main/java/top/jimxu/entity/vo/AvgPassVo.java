@@ -24,6 +24,8 @@ public class AvgPassVo {
 
     private String ids;
 
+    private String flag;
+
 
     private List<AvgPassCout> stationAvgCount;
 

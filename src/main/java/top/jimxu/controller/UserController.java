@@ -2,7 +2,7 @@ package top.jimxu.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
-import top.jimxu.entity.User;
+import top.jimxu.entity.domain.User;
 import top.jimxu.service.UserService;
 
 import java.util.List;

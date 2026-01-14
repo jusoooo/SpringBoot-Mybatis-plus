@@ -1,7 +1,7 @@
 package top.jimxu.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import top.jimxu.entity.User;
+import top.jimxu.entity.domain.User;
 
 import java.util.List;
 

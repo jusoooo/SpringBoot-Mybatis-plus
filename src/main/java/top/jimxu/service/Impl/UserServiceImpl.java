@@ -1,10 +1,11 @@
-package top.jimxu.service;
+package top.jimxu.service.Impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
-import top.jimxu.entity.User;
+import top.jimxu.entity.domain.User;
 import top.jimxu.mapper.UserMapper;
+import top.jimxu.service.UserService;
 
 import java.util.List;
 

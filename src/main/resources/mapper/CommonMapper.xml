@@ -67,12 +67,12 @@
                     #{item}
                 </foreach>
             </if>
-            <if test="stationcnList != null and stationcnList.size() > 0">
+            <!--<if test="stationcnList != null and stationcnList.size() > 0">
                 and t.stationcn in
                 <foreach collection="stationcnList" item="item" open=" ( " close=" ) " separator=" , " >
                     #{item}
                 </foreach>
-            </if>
+            </if>-->
         </where>
         group by t.ydno, t.stationcn, t.fzcn, t.dzcn, c.ctnno, t.trainno) k
         <where>
