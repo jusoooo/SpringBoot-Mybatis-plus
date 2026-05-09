@@ -1,6 +1,7 @@
 package top.jimxu.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import top.jimxu.entity.domain.ComUser;
 import top.jimxu.entity.domain.User;
 
 import java.util.List;
@@ -11,4 +12,6 @@ public interface UserService extends IService<User>{
     int deleteUser( User user );
     User findUserById( int id );
     List<User> selectList(User user);
+    List<ComUser> getNeedUpdatePasswordUser();
+    void updateComUser(ComUser comUser);
 }

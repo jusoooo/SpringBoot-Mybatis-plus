@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="top.jimxu.mapper.ComUserMapper">
+
+    <select id="getNeedUpdatePasswordUser" resultType="top.jimxu.entity.domain.ComUser">
+        SELECT cu.* FROM SRPM.COM_USER cu WHERE COMPANYID  = 'OPT'
+    </select>
+
+</mapper>
