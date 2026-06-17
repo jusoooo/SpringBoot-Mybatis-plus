@@ -20,7 +20,8 @@ public class SrpmActiveMqConsumer {
     @JmsListener(
             destination = "SRPM/PUSH/TIANMENG/FVqOT",
 //            subscription = "srpm_tianmeng_sub_01", Topic 持久化订阅必须指定唯一的 subscription ID
-            containerFactory = "topicFactory"      // 指定使用上面配置的 topicFactory
+            containerFactory = "topicFactory",      // 指定使用上面配置的 topicFactory
+            id="srpmTopicListener"
     )
     public void consumeTopicMessage(Message jmsMessage) {
         try {

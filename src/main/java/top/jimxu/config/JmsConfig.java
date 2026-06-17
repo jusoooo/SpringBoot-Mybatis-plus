@@ -33,6 +33,7 @@ public class JmsConfig {
         // 开启持久化订阅 (确保服务重启期间，Topic 消息不丢失)
 //        factory.setSubscriptionDurable(true);
         factory.setConcurrency("1-5"); // Topic 通常并发不需要太高，视业务而定
+        factory.setAutoStartup(false);
         return factory;
     }
 
