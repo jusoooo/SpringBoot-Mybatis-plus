@@ -1,0 +1,63 @@
+logging:
+    level:
+        top:
+            jimxu:
+                mapper: debug
+        # 正常启动后，把 Kafka 底层的 DEBUG/INFO 日志关掉，只保留 WARN/ERROR
+#        org.apache.kafka: WARN
+#        org.springframework.kafka: INFO
+mybatis-plus:
+    mapper-locations: classpath*:mapper/*Mapper.xml
+server:
+    address: 127.0.0.1
+    port: 8080
+sms:
+    apId: zhebei
+    ecName: 宁波港信息通信有限公司
+    secretKey: $S*sEaSi3n1
+    sign: jraXuTz8R
+    url: http://112.33.46.17:37891/sms/norsubmit
+# spring配置
+spring:
+    activemq:
+        broker-url: failover:(tcp://mc.nbport.com.cn:61616)
+        packages:
+            trust-all: true
+        password: goodluck
+        user: receiver
+    kafka:
+        bootstrap-servers: kafka-external-1:9092,kafka-external-2:9092,kafka-external-3:9092
+        admin:
+            fail-fast: false
+        consumer:
+            group-id: my-group
+            auto-offset-reset: earliest
+            enable-auto-commit: false
+            key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+            value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+        listener:
+            missing-topics-fatal: false
+            ack-mode: manual_immediate
+            concurrency: 3
+        properties:
+            security.protocol: SASL_PLAINTEXT
+            sasl.mechanism: SCRAM-SHA-256
+
+            # 【新增】防止单条消息处理过慢被踢出消费组（单位：毫秒，这里设为 10 分钟）
+            max.poll.interval.ms: 600000
+            # 【核心重点】：
+            # 1. 最外层必须使用 单引号 ' 包裹整个字符串！
+            # 2. 内部的 username 和 password 必须使用 双引号 " 包裹！
+            # 3. 末尾必须有 分号 ;
+            # 这样 YAML 解析器才不会把密码里的 & 当作特殊语法处理。
+#            sasl.jaas.config: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="yiwutianmeng" password="~W5&8m&P$H$j";'
+            sasl.jaas.config: 'org.apache.kafka.common.security.scram.ScramLoginModule required username="sris" password="dr&4fUWekxuu";'
+    # 数据库
+    datasource:
+        driver-class-name: oracle.jdbc.driver.OracleDriver
+        password: srpm1008
+        url: jdbc:oracle:thin:@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)(HOST=10.186.116.120)(PORT=13451)))(CONNECT_DATA=(SERVICE_NAME=nbgdb)))
+        username: srpm
+    jms:
+        listener:
+            auto-startup: false
