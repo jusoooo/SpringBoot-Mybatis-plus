@@ -18,7 +18,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @TableName(value = "TRAIN_CTN_DETAIL_HISTORY")
-@KeySequence("SEQ_TRAIN_CTN_DETAIL_HISTORY")
+@KeySequence("SEQ_TRAIN_CTN_DETAIL")
 public class TrainCtnDetailHistory {
 
 

@@ -6,8 +6,32 @@ logging:
         # 正常启动后，把 Kafka 底层的 DEBUG/INFO 日志关掉，只保留 WARN/ERROR
 #        org.apache.kafka: WARN
 #        org.springframework.kafka: INFO
+
+# xxl-job 执行器配置（调度中心部署好后，把 addresses 改成实际地址即可）
+xxl:
+    job:
+        # 调度中心地址，多个用逗号分隔；本地默认 http://127.0.0.1:8081/xxl-job-admin
+        admin:
+            addresses: http://127.0.0.1:8081/xxl-job-admin
+        # 2.3.1 版本必须配置 accessToken，需与调度中心 xxl-job.accessToken 配置一致（默认 default_token）
+        accessToken: default_token
+        executor:
+            # 执行器名称，在调度中心"执行器管理"中新建同名执行器（AppName 必须一致）
+            appname: sris-test-executor
+            # 执行器 IP 和端口；调度中心跑在 Docker 里时，ip 必须填 host.docker.internal
+            # （容器通过它访问宿主机；如果调度中心不是容器部署，把 ip 留空即可自动获取）
+            ip: host.docker.internal
+            # 执行器内嵌服务端口（默认 9999）
+            port: 9999
+            # 执行器运行日志目录（相对路径，相对应用启动工作目录；macOS 上不要用 /data 这类需要 root 的路径）
+            logpath: ./logs/xxl-job/jobhandler
+            # 日志保留天数
+            logretentiondays: 30
 mybatis-plus:
     mapper-locations: classpath*:mapper/*Mapper.xml
+    configuration:
+        # Oracle 必须显式指定 null 的 jdbcType 为 NULL，否则 MyBatis 默认用 OTHER(1111)，报"无效的列类型: 1111"
+        jdbc-type-for-null: 'NULL'
 server:
     address: 127.0.0.1
     port: 8080

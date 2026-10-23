@@ -20,6 +20,7 @@ import top.jimxu.entity.domain.TrainCtnDetail;
 import top.jimxu.entity.domain.TrainCtnDetailHistory;
 import top.jimxu.mapper.SrAppointPoolDetailMapper;
 import top.jimxu.mapper.TrainCtnDetailDao;
+import top.jimxu.job.JobLogUtil;
 
 import javax.xml.namespace.QName;
 import org.apache.axis.client.Call;
@@ -46,7 +47,6 @@ public class TestController {
     private final TrainCtnDetailHistoryDao trainCtnDetailHistoryDao;
 
     private final JmsTemplate jmsTemplate;
-
 
     @GetMapping("/getSrAppointPoolDetailById")
     public R getSrAppointPoolDetailById(@RequestParam String id){
@@ -79,34 +79,51 @@ public class TestController {
     }
 
 
-    // 测试定时autoGetZsInfo
-    @GetMapping("/autoGetZsInfoHis")
-    public R autoGetZsInfoHis() {
+    // 镇司历史数据同步（2021-01-01 ~ 2022-12-31），由 xxl-job 调度，JobHandler 名称：autoGetZsInfoHisJob
+    public void autoGetZsInfoHis() {
         // 21-01-01 到 22-12-31
         List<String> days = DateUtilsExternal.getDatesBetween("2021-01-01", "2022-12-31");
+        JobLogUtil.info("autoGetZsInfoHis 开始执行，共需处理 " + days.size() + " 天(2021-01-01 ~ 2022-12-31)，数据将写入 TRAIN_CTN_DETAIL_HISTORY 表");
+        int skipDays = 0;
+        int totalInsert = 0;
         for (String param : days) {
             SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
             if(StrUtil.isBlank(param)){
                 param = format.format(new Date());
             }
-            Date date = DateUtils.addDays(new Date(), -1);
-            String lastDate = format.format(date);
-            Date date3 = DateUtils.addDays(new Date(), -3);
-            String last3Date = format.format(date3);
+            // 以当前处理的日期 param 为基准，取其前一天、前三天
+            // 注意：不能用 new Date()，否则历史补录时会拿到任务运行当天的日期，时间窗口全错
+            Date paramDate;
+            try {
+                paramDate = DateUtil.parse(param, "yyyy-MM-dd");
+            } catch (Exception e) {
+                JobLogUtil.error("[" + param + "] 日期格式解析失败，跳过该日期: " + e.getMessage());
+                skipDays++;
+                continue;
+            }
+            String lastDate = format.format(DateUtils.addDays(paramDate, -1));
+            String last3Date = format.format(DateUtils.addDays(paramDate, -3));
 
             //查询前一天镇司发送的散改机箱量
             List<TrainCtnDetailHistory> list = trainCtnDetailHistoryDao.selectList(new QueryWrapper<TrainCtnDetailHistory>().lambda().eq(TrainCtnDetailHistory::getTraindirect, "SEND")
                     .eq(TrainCtnDetailHistory::getTrainname, "HAITIESANGAIJI")
                     .eq(TrainCtnDetailHistory::getCtntype, "H")
                     .eq(TrainCtnDetailHistory::getCtnstatus, "F")
-                    .eq(TrainCtnDetailHistory::getTrainno,"5349069")
                     .eq(TrainCtnDetailHistory::getTrainplace, "ZHCT")
-                    .between(TrainCtnDetailHistory::getLoadtime,lastDate.replace("-","") + "000000",param.replace("-","") + "000000" ));
+                    .eq(TrainCtnDetailHistory::getDz,"皋埠")
+                    .between(TrainCtnDetailHistory::getLoadtime,lastDate.replace("-","") + "180000",param.replace("-","") + "180000" ));
 
             if(list.isEmpty()){
                 log.error("未查询到散改集发送数据");
-                return R.error();
+                JobLogUtil.error("[" + param + "] 未查询到镇司发送的散改集数据，跳过该日期，继续下一天");
+                skipDays++;
+                continue;
             }
+            List<String> sendCtnNos = new ArrayList<>();
+            for (int i = 0; i < list.size(); i++) {
+                sendCtnNos.add(list.get(i).getCtnno());
+            }
+            JobLogUtil.info("[" + param + "] 查到镇司发送的散改集数据 " + list.size() + " 条，箱号: " + String.join(",", sendCtnNos) + "，查询装船时间窗口: " + lastDate + " 00:00:00 ~ " + param + " 00:00:00");
 
             String result = "";
             try {
@@ -119,9 +136,12 @@ public class TestController {
                 call.addParameter(new QName("http://xtwebserver.service.eport.com", "end_time"), Constants.XSD_STRING, ParameterMode.IN);
                 call.setReturnType(XMLType.XSD_STRING);
                 result = (String) call.invoke(new Object[] { last3Date,param + " 18:00" });
-                log.info("{}获取颐博镇司到达数据为{}","getWrkTrnArvZH",result);
+                log.info("时间:{},{}获取颐博镇司到达数据为{}",param,"getWrkTrnArvZH",result);
+                JobLogUtil.info("[" + param + "] 调用镇司接口 getWrkTrnArvZH, 入参: start_time=" + last3Date + ", end_time=" + param + " 18:00");
+                JobLogUtil.info("[" + param + "] 调用镇司接口 getWrkTrnArvZH 返回: " + result);
             } catch (Exception e) {
                 e.printStackTrace();
+                JobLogUtil.error("[" + param + "] 调用镇司接口异常: " + e.getMessage(), e);
             }
 
             if(StrUtil.isNotBlank(result)){
@@ -175,7 +195,7 @@ public class TestController {
                             trainCtnDetail.setSpperson(list.get(i).getSpperson());
                             trainCtnDetail.setTrainplace(list.get(i).getTrainplace());
                             trainCtnDetail.setGoods("集装箱");
-                            trainCtnDetail.setRemarks("镇司到达散改集用空箱");
+                            trainCtnDetail.setRemarks("镇司到达散改集用空箱历史");
                             trainCtnDetail.setPlantime(new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()));
                             trainCtnDetail.setFz(list.get(i).getDz());
                             trainCtnDetail.setDz(list.get(i).getFz());
@@ -194,50 +214,77 @@ public class TestController {
 
 
                             if(listCheck.isEmpty() && listCheck2.isEmpty()){
-//                            trainCtnDetailDao.insert(trainCtnDetail);
+                                trainCtnDetail.setCtnid(nextHistoryCtnId());
+                                trainCtnDetailHistoryDao.insert(trainCtnDetail);
                                 dumpTrainCtnDetail.add(trainCtnDetail);
+                                JobLogUtil.info("[" + param + "] 入库成功(TRAIN_CTN_DETAIL_HISTORY): 箱号=" + trainCtnDetail.getCtnno()
+                                        + ", 到达时间=" + trainCtnDetail.getDischargetime()
+                                        + ", 船名=" + trainCtnDetail.getTrainname()
+                                        + ", 航线=" + trainCtnDetail.getTrainvoyage()
+                                        + ", 目的港=" + trainCtnDetail.getDesport());
+                            }else{
+                                JobLogUtil.info("[" + param + "] 箱号=" + trainCtnDetail.getCtnno() + " 已存在到达/发送记录，跳过入库");
                             }
 
                         }
 
                     }
-                    log.info("调用颐博镇司到达数据入库{}条,具体数据:{}",dumpTrainCtnDetail.size(),JSON.toJSONString(dumpTrainCtnDetail));
+                    totalInsert = totalInsert + dumpTrainCtnDetail.size();
+                    log.info("日期:{},调用颐博镇司到达数据入库{}条,具体数据:{}",param,dumpTrainCtnDetail.size(),JSON.toJSONString(dumpTrainCtnDetail));
+                    JobLogUtil.info("[" + param + "] 本日入库汇总: " + dumpTrainCtnDetail.size() + " 条，明细: " + JSON.toJSONString(dumpTrainCtnDetail));
                 }
             }else{
                 log.error("调用颐博镇司到达数据异常:{}",DateUtil.now());
+                JobLogUtil.error("[" + param + "] 镇司接口返回为空，本次无到达数据可处理");
             }
         }
-        return R.success();
+        JobLogUtil.info("autoGetZsInfoHis 执行结束，本次累计入库 TRAIN_CTN_DETAIL_HISTORY " + totalInsert + " 条，跳过无数据日期 " + skipDays + " 天");
     }
 
-
-    // 测试定时autoGetZsInfoHis
-    @GetMapping("/autoGetZsInfo")
-    public R autoGetZsInfo() {
-        List<String> days = DateUtilsExternal.getDatesBetween("2023-01-01", "2025-12-31");
+    // 镇司数据同步（2023-01-01 ~ 2025-12-31），由 xxl-job 调度，JobHandler 名称：autoGetZsInfoJob
+    public void autoGetZsInfo() {
+        List<String> days = DateUtilsExternal.getDatesBetween("2023-12-24", "2025-12-31");
+        JobLogUtil.info("autoGetZsInfo 开始执行，共需处理 " + days.size() + " 天(2023-01-01 ~ 2025-12-31)");
+        int totalInsert = 0;
+        int skipDays = 0;
         for (String param : days) {
             SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
             if(StrUtil.isBlank(param)){
                 param = format.format(new Date());
             }
-            Date date = DateUtils.addDays(new Date(), -1);
-            String lastDate = format.format(date);
-            Date date3 = DateUtils.addDays(new Date(), -3);
-            String last3Date = format.format(date3);
+            // 以当前处理的日期 param 为基准，取其前一天、前三天
+            // 注意：不能用 new Date()，否则历史补录时会拿到任务运行当天的日期，时间窗口全错
+            Date paramDate;
+            try {
+                paramDate = DateUtil.parse(param, "yyyy-MM-dd");
+            } catch (Exception e) {
+                JobLogUtil.error("[" + param + "] 日期格式解析失败，跳过该日期: " + e.getMessage());
+                skipDays++;
+                continue;
+            }
+            String lastDate = format.format(DateUtils.addDays(paramDate, -1));
+            String last3Date = format.format(DateUtils.addDays(paramDate, -3));
 
             //查询前一天镇司发送的散改机箱量
             List<TrainCtnDetail> list = trainCtnDetailDao.selectList(new QueryWrapper<TrainCtnDetail>().lambda().eq(TrainCtnDetail::getTraindirect, "SEND")
                     .eq(TrainCtnDetail::getTrainname, "HAITIESANGAIJI")
                     .eq(TrainCtnDetail::getCtntype, "H")
                     .eq(TrainCtnDetail::getCtnstatus, "F")
-                    .eq(TrainCtnDetail::getTrainno,"5349069")
                     .eq(TrainCtnDetail::getTrainplace, "ZHCT")
-                    .between(TrainCtnDetail::getLoadtime,lastDate.replace("-","") + "000000",param.replace("-","") + "000000" ));
+                    .eq(TrainCtnDetail::getDz,"皋埠")
+                    .between(TrainCtnDetail::getLoadtime,lastDate.replace("-","") + "180000",param.replace("-","") + "180000" ));
 
             if(list.isEmpty()){
                 log.error("未查询到散改集发送数据");
-                return R.error();
+                JobLogUtil.error("[" + param + "] 未查询到镇司发送的散改集数据，跳过该日期，继续下一天");
+                skipDays++;
+                continue;
             }
+            List<String> sendCtnNos2 = new ArrayList<>();
+            for (int i = 0; i < list.size(); i++) {
+                sendCtnNos2.add(list.get(i).getCtnno());
+            }
+            JobLogUtil.info("[" + param + "] 查到镇司发送的散改集数据 " + list.size() + " 条，箱号: " + String.join(",", sendCtnNos2) + "，查询装船时间窗口: " + lastDate + " 00:00:00 ~ " + param + " 00:00:00");
 
             String result = "";
             try {
@@ -250,9 +297,12 @@ public class TestController {
                 call.addParameter(new QName("http://xtwebserver.service.eport.com", "end_time"), Constants.XSD_STRING, ParameterMode.IN);
                 call.setReturnType(XMLType.XSD_STRING);
                 result = (String) call.invoke(new Object[] { last3Date,param + " 18:00" });
-                log.info("{}获取颐博镇司到达数据为{}","getWrkTrnArvZH",result);
+//                log.info("时间:{},{}获取颐博镇司到达数据为{}",param,"getWrkTrnArvZH",result);
+                JobLogUtil.info("[" + param + "] 调用镇司接口 getWrkTrnArvZH, 入参: start_time=" + last3Date + ", end_time=" + param + " 18:00");
+                JobLogUtil.info("[" + param + "] 调用镇司接口 getWrkTrnArvZH 返回: " + result);
             } catch (Exception e) {
                 e.printStackTrace();
+                JobLogUtil.error("[" + param + "] 调用镇司接口异常: " + e.getMessage(), e);
             }
 
             if(StrUtil.isNotBlank(result)){
@@ -271,7 +321,7 @@ public class TestController {
                                 jsontemp.add(objj);
                             }
                         }
-                        if(jsontemp.size() > 0 ){
+                        if(!jsontemp.isEmpty()){
                             JSONObject objFinal;
                             if(jsontemp.size() > 1){
                                 int maxnum = 0;
@@ -306,7 +356,7 @@ public class TestController {
                             trainCtnDetail.setTrainplace(list.get(i).getTrainplace());
                             trainCtnDetail.setPortagent("船货代公司");
                             trainCtnDetail.setGoods("集装箱");
-                            trainCtnDetail.setRemarks("镇司到达散改集用空箱");
+                            trainCtnDetail.setRemarks("镇司到达散改集用空箱1");
                             trainCtnDetail.setPlantime(new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()));
                             trainCtnDetail.setFz(list.get(i).getDz());
                             trainCtnDetail.setDz(list.get(i).getFz());
@@ -325,22 +375,62 @@ public class TestController {
 
 
                             if(listCheck.isEmpty() && listCheck2.isEmpty()){
+                                trainCtnDetail.setCtnid(nextCtnId());
                                 trainCtnDetailDao.insert(trainCtnDetail);
                                 dumpTrainCtnDetail.add(trainCtnDetail);
+                                JobLogUtil.info("[" + param + "] 入库成功: 箱号=" + trainCtnDetail.getCtnno()
+                                        + ", 到达时间=" + trainCtnDetail.getDischargetime()
+                                        + ", 船名=" + trainCtnDetail.getTrainname()
+                                        + ", 航线=" + trainCtnDetail.getTrainvoyage());
+                            }else{
+                                JobLogUtil.info("[" + param + "] 箱号=" + trainCtnDetail.getCtnno() + " 已存在到达/发送记录，跳过入库");
                             }
 
                         }
 
                     }
-                    log.info("调用颐博镇司到达数据入库{}条,具体数据:{}",dumpTrainCtnDetail.size(),JSON.toJSONString(dumpTrainCtnDetail));
+                    totalInsert = totalInsert + dumpTrainCtnDetail.size();
+                    log.info("日期:{},调用颐博镇司到达历史数据入库{}条,具体数据:{}",param,dumpTrainCtnDetail.size(),JSON.toJSONString(dumpTrainCtnDetail));
+                    JobLogUtil.info("[" + param + "] 本日入库汇总: " + dumpTrainCtnDetail.size() + " 条，明细: " + JSON.toJSONString(dumpTrainCtnDetail));
                 }
             }else{
                 log.error("调用颐博镇司到达数据异常:{}",DateUtil.now());
+                JobLogUtil.error("[" + param + "] 镇司接口返回为空，本次无到达数据可处理");
             }
         }
-        return R.success();
+        JobLogUtil.info("autoGetZsInfo 执行结束，本次累计入库 " + totalInsert + " 条，跳过无数据日期 " + skipDays + " 天");
     }
 
+
+    /**
+     * 取 TRAIN_CTN_DETAIL 主键序列值；序列不可用时兜底用 UUID，保证定时任务不中断
+     */
+    private String nextCtnId() {
+        try {
+            String ctnId = trainCtnDetailDao.selectNextCtnId();
+            if (StrUtil.isNotBlank(ctnId)) {
+                return ctnId;
+            }
+        } catch (Exception e) {
+            JobLogUtil.error("取序列 seq_train_ctn_detail.nextval 失败，改用 UUID 作为 ctnid: " + e.getMessage());
+        }
+        return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    /**
+     * 取 TRAIN_CTN_DETAIL_HISTORY 主键序列值；序列不可用时兜底用 UUID，保证定时任务不中断
+     */
+    private String nextHistoryCtnId() {
+        try {
+            String ctnId = trainCtnDetailHistoryDao.selectNextCtnId();
+            if (StrUtil.isNotBlank(ctnId)) {
+                return ctnId;
+            }
+        } catch (Exception e) {
+            JobLogUtil.error("取序列 seq_train_ctn_detail.nextval 失败(历史表)，改用 UUID 作为 ctnid: " + e.getMessage());
+        }
+        return UUID.randomUUID().toString().replace("-", "");
+    }
 
     private int compareDate(String date1 ,String date2){
         int i = 0;

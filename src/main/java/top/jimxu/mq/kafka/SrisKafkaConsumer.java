@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
  * Kafka 消费者监听器
  */
 @Slf4j
-@Component
+//@Component
 public class SrisKafkaConsumer {
 
     /**
